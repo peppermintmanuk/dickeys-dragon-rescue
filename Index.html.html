@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Dickey's Dragon Rescue</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:12px;font-family:system-ui,-apple-system,sans-serif;background:#eaf5fb;color:#172033}
+main{max-width:760px;margin:auto}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-weight:800;font-size:1.05rem;margin-bottom:10px}
+canvas{display:block;width:100%;height:auto;border-radius:14px;background:#8bd0e8;touch-action:none;box-shadow:0 2px 8px #0002}
+.controls{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:12px}
+button{border:0;border-radius:14px;min-height:68px;font-size:1.35rem;font-weight:800;background:#e0e6ed;color:#172033;touch-action:manipulation;box-shadow:0 3px 0 #0002}
+button:active{transform:translateY(2px);box-shadow:0 1px 0 #0002}
+#jump{background:#1769aa;color:white;font-size:1.1rem}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:10px}
+.actions button{font-size:.98rem;min-height:54px}
+#start{background:#27834b;color:white}
+#sound{font-size:.9rem}
+#message{text-align:center;font-weight:750;margin:12px 0 5px;min-height:2.6em;line-height:1.35}
+.hint{text-align:center;color:#536273;font-size:.88rem;margin:0 0 8px}
+@media(max-width:420px){body{padding:8px}.controls,.actions{gap:6px}.controls button{min-height:64px}.actions button{font-size:.82rem;min-height:50px}}
+</style>
+</head>
+<body>
+<main>
+<div class="top"><span>🐒 Dickey's Dragon Rescue</span><span>❤️ <span id="lives">3</span>　⭐ <span id="score">0</span></span></div>
+<canvas id="game" width="720" height="300" aria-label="Dickey's Dragon Rescue game"></canvas>
+<div class="controls" id="moveControls">
+<button id="left" aria-label="Move left">◀ LEFT</button>
+<button id="jump">⬆ JUMP!</button>
+<button id="right" aria-label="Move right">RIGHT ▶</button>
+</div>
+<div class="actions">
+<button id="start">▶ START</button><button id="restart">↻ RESTART</button><button id="sound">🔊 SOUND ON</button>
+</div>
+<div id="message" aria-live="polite">Press START to help Dickey reach the hospital!</div>
+<div class="hint" id="hint">Move right, jump over rocks and keep ahead of the friendly dragon.</div>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id), canvas=$('game'),ctx=canvas.getContext('2d');
+const W=720,H=300,groundY=245;
+let mode='title',x=70,y=0,vy=0,onGround=true,score=0,lives=3,frame=0,rocks=[],held=false,dir=0,raf=0,muted=false,audio=null;
+let dragonX=-40,helpStep=0,helpTimer=0,patientPulse=0,stoneX=490;
+const messages=[
+ 'Step 1 of 4: Tap CHECK ON PIP to see how they are feeling.',
+ 'Step 2 of 4: Tap LISTEN to check Pip is okay.',
+ 'Step 3 of 4: Tap BANDAGE to put on a colourful plaster.',
+ 'Step 4 of 4: Tap HELP PIP UP three times!'
+];
+function say(s){$('message').textContent=s}
+function beep(freq=440,duration=.13){if(muted)return;try{audio=audio||new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();let o=audio.createOscillator(),g=audio.createGain(),t=audio.currentTime;o.frequency.setValueAtTime(freq,t);o.frequency.exponentialRampToValueAtTime(freq*1.5,t+duration);g.gain.setValueAtTime(.07,t);g.gain.exponentialRampToValueAtTime(.001,t+duration);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+duration)}catch(e){}}
+function text(t,x,y,size=24,color='#17334d',align='left'){ctx.fillStyle=color;ctx.font=`bold ${size}px system-ui,sans-serif`;ctx.textAlign=align;ctx.fillText(t,x,y);ctx.textAlign='left'}
+function sky(){ctx.fillStyle='#8bd0e8';ctx.fillRect(0,0,W,H);ctx.fillStyle='#fff7c7';ctx.beginPath();ctx.arc(630,52,25,0,Math.PI*2);ctx.fill();ctx.fillStyle='#b6e2a1';ctx.beginPath();ctx.ellipse(110,225,150,45,0,0,Math.PI*2);ctx.ellipse(430,228,200,40,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#639b50';ctx.fillRect(0,groundY,W,H-groundY);ctx.fillStyle='#a9d56a';ctx.fillRect(0,groundY,W,7)}
+function monkey(px,py,cheer=false){ctx.font='43px sans-serif';ctx.fillText(cheer?'🐒🙌':'🐒',px,py)}
+function dragon(px,py){ctx.font='49px sans-serif';ctx.fillText('🐉',px,py);ctx.font='15px sans-serif';ctx.fillText('puff!',px+8,py-12)}
+function drawPlatform(){
+ sky();
+ // hospital destination
+ ctx.font='58px sans-serif';ctx.fillText('🏥',625,groundY+2);
+ ctx.fillStyle='#f8d58a';ctx.fillRect(617,groundY-47,75,9);
+ rocks.forEach(r=>{ctx.font='31px sans-serif';ctx.fillText('🪨',r.x,groundY+1)});
+ dragon(dragonX,groundY-90);
+ monkey(x,groundY-y+2);
+ text('HOSPITAL',655,groundY+42,12,'#fff','center');
+ if(mode==='title'){overlay('DICKEY’S DRAGON RESCUE','Press START below to begin!','🐒  🐉  🏥')}
+ if(mode==='gameover'){overlay('OH NO!','Dickey needs another try. Press RESTART.','🐒 💛')}
+}
+function overlay(a,b,c){ctx.fillStyle='#17334ddd';ctx.fillRect(0,0,W,H);text(a,W/2,104,29,'white','center');text(b,W/2,145,17,'white','center');text(c,W/2,210,42,'white','center')}
+function drawHospital(){
+ ctx.fillStyle='#d9f0ff';ctx.fillRect(0,0,W,H);
+ ctx.fillStyle='#fff';ctx.fillRect(70,52,580,205);ctx.strokeStyle='#8ab9d1';ctx.lineWidth=5;ctx.strokeRect(70,52,580,205);
+ text('HOSPITAL HELP TEAM',W/2,87,25,'#24506b','center');
+ // bed
+ ctx.fillStyle='#8ebbd0';ctx.fillRect(205,193,315,14);ctx.fillRect(225,207,12,28);ctx.fillRect(493,207,12,28);
+ ctx.fillStyle='#fff';ctx.fillRect(225,151,105,44);ctx.fillStyle='#f6b6a9';ctx.beginPath();ctx.arc(281,145,25,0,Math.PI*2);ctx.fill();
+ ctx.font='43px sans-serif';ctx.fillText(helpStep>=4?'🧍':'🧑‍🦽',350,194);
+ ctx.font='32px sans-serif';ctx.fillText('🩹',helpStep>=3?390:0,helpStep>=3?133:0);
+ ctx.font='43px sans-serif';ctx.fillText('🪨',stoneX,groundY-50);
+ text('PIP',280,116,15,'#24506b','center');
+ if(helpStep>=1){ctx.font='22px sans-serif';ctx.fillText('💗',450,150)}
+ if(helpStep>=4){ctx.fillStyle='#fff4b0';ctx.beginPath();ctx.arc(560,135,34,0,Math.PI*2);ctx.fill();text('✨',560,145,31,'#e6a600','center')}
+ if(mode==='hospital'){text(messages[Math.min(helpStep,3)],W/2,284,17,'#24506b','center')}
+ if(mode==='complete'){ctx.fillStyle='#fff4b0';ctx.fillRect(0,0,W,H);text('PIP FEELS ALL BETTER!',W/2,95,30,'#246444','center');text('🎉  🐒  💚  🧑‍⚕️  🎉',W/2,174,45,'#246444','center');text('You are a brilliant helper!',W/2,225,21,'#246444','center')}
+}
+function draw(){ctx.clearRect(0,0,W,H);if(mode==='hospital'||mode==='complete')drawHospital();else drawPlatform();$('lives').textContent=lives;$('score').textContent=Math.floor(score)}
+function reset(){cancelAnimationFrame(raf);setMoveControls();mode='title';x=70;y=0;vy=0;onGround=true;score=0;lives=3;frame=0;rocks=[];dragonX=-40;held=false;dir=0;helpStep=0;helpTimer=0;setMoveControls();$('start').textContent='▶ START';say('Press START to help Dickey reach the hospital!');$('hint').textContent='Move right, jump over rocks and keep ahead of the friendly dragon.';draw()}
+function start(){if(mode==='title'||mode==='gameover'){mode='platform';say('Go Dickey! Keep moving and jump over the rocks.');beep(520);raf=requestAnimationFrame(loop)}else if(mode==='complete'){reset();start()}}
+function jump(){if(mode==='title'){start();return}if(mode==='platform'&&onGround){vy=13;onGround=false;beep(360)}}
+function loop(){
+ if(mode!=='platform')return;frame++;score+=.1;
+ if(held)x=Math.max(0,Math.min(660,x+dir*4.2));
+ if(!onGround){y+=vy;vy-=.72;if(y<=0){y=0;vy=0;onGround=true}}
+ if(frame%78===0)rocks.push({x:735});
+ rocks.forEach(r=>r.x-=4.1);rocks=rocks.filter(r=>r.x>-50);
+ // Dragon steadily closes in, but falls back when the player keeps moving.
+ dragonX += (x-55-dragonX)*.012;
+ dragonX=Math.max(-35,dragonX);
+ for(const r of rocks){if(r.x<x+34&&r.x+28>x+8&&y<42){r.x=-100;lives--;beep(130,.22);say('Bump! Jump over the rocks, Dickey.');if(lives<=0){mode='gameover';say('Three bumps! Press RESTART to try again.');draw();return}}}
+ if(x-dragonX<63){lives--;dragonX=x-150;x=Math.max(55,x-55);beep(220,.2);say('The dragon gave Dickey a gentle boop! Keep moving!');if(lives<=0){mode='gameover';say('The dragon caught up! Press RESTART for another go.');draw();return}}
+ if(x>=610){mode='hospital';held=false;dir=0;setMoveControls();showHelpControls();say(messages[0]);$('hint').textContent='Help Pip feel better by following the four steps.';beep(760,.3);draw();return}
+ draw();raf=requestAnimationFrame(loop)
+}
+function setMoveControls(){
+ $('moveControls').style.display='grid';
+ $('moveControls').innerHTML='<button id="left" aria-label="Move left">◀ LEFT</button><button id="jump">⬆ JUMP!</button><button id="right" aria-label="Move right">RIGHT ▶</button>';
+ $('moveControls').style.gridTemplateColumns='repeat(3,1fr)';
+ $('left').addEventListener('pointerdown',e=>{e.preventDefault();if(mode==='title')start();held=true;dir=-1});
+ $('right').addEventListener('pointerdown',e=>{e.preventDefault();if(mode==='title')start();held=true;dir=1});
+ ['left','right'].forEach(id=>['pointerup','pointercancel','pointerleave','lostpointercapture'].forEach(ev=>$(id).addEventListener(ev,()=>{held=false;dir=0})));
+ $('jump').addEventListener('pointerdown',e=>{e.preventDefault();jump()});
+ const extra=$('help4');if(extra)extra.remove();
+}
+function showHelpControls(){
+ $('moveControls').innerHTML='<button id="help1">💛 CHECK ON PIP</button><button id="help2">💓 LISTEN</button><button id="help3">🩹 BANDAGE</button>';
+ $('moveControls').style.gridTemplateColumns='repeat(3,1fr)';
+ $('help1').addEventListener('click',()=>helpAction(1));
+ $('help2').addEventListener('click',()=>helpAction(2));
+ $('help3').addEventListener('click',()=>helpAction(3));
+ const extra=document.createElement('button');extra.id='help4';extra.textContent='🙌 HELP PIP UP';extra.style.gridColumn='1 / -1';extra.style.background='#27834b';extra.style.color='white';$('moveControls').after(extra);extra.addEventListener('click',()=>helpAction(4));
+}
+function helpAction(step){
+ if(mode!=='hospital')return;
+ if(step!==helpStep+1){say('Follow the steps in order. ' + messages[helpStep]);beep(230);return}
+ if(step===4){helpTimer++;if(helpTimer<3){say(`Great! Tap HELP PIP UP ${3-helpTimer} more time${3-helpTimer===1?'':'s'}.`);beep(500);return}}
+ helpStep++;beep(500+step*100);
+ if(helpStep<4){say(messages[helpStep]);draw()}
+ else{mode='complete';say('Pip is feeling much better. You did it!');$('hint').textContent='Press RESTART to play again.';beep(900,.45);draw()}
+}
+$('start').addEventListener('click',start);$('restart').addEventListener('click',reset);
+$('sound').addEventListener('click',()=>{muted=!muted;$('sound').textContent=muted?'🔇 SOUND OFF':'🔊 SOUND ON';if(!muted)beep(550)});
+document.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp',' '].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft'){held=true;dir=-1;if(mode==='title')start()}if(e.key==='ArrowRight'){held=true;dir=1;if(mode==='title')start()}if(e.key==='ArrowUp'||e.key===' ')jump()});
+document.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'&&dir===-1){held=false;dir=0}if(e.key==='ArrowRight'&&dir===1){held=false;dir=0}});
+reset();
+})();
+</script>
+</body>
+</html>
